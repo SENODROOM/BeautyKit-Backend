@@ -107,7 +107,6 @@ app.post('/api/profiles', authMiddleware, async (req, res) => {
     if (!profileName) return res.status(400).json({ error: 'Profile name required' });
     
     const profile = {
-      id: uuidv4(),
       profileName,
       skinTone,
       recommendations,
@@ -117,7 +116,13 @@ app.post('/api/profiles', authMiddleware, async (req, res) => {
     
     user.profiles.push(profile);
     await user.save();
-    res.json(profile);
+    
+    // Return the profile with MongoDB's generated _id
+    const savedProfile = user.profiles[user.profiles.length - 1];
+    res.json({
+      id: savedProfile._id,
+      ...savedProfile.toObject()
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -129,7 +134,7 @@ app.delete('/api/profiles/:id', authMiddleware, async (req, res) => {
     const user = await User.findOne({ email: req.userEmail });
     if (!user) return res.status(404).json({ error: 'User not found' });
     
-    const idx = user.profiles.findIndex(p => p.id === req.params.id);
+    const idx = user.profiles.findIndex(p => p._id.toString() === req.params.id);
     if (idx === -1) return res.status(404).json({ error: 'Profile not found' });
     
     user.profiles.splice(idx, 1);
