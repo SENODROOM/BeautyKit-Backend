@@ -4,6 +4,9 @@ const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 const connectDB = require('./config/database');
 const User = require('./models/User');
 const data = require('./data/data');
@@ -17,6 +20,36 @@ const JWT_SECRET = process.env.JWT_SECRET || 'beaukit-secret-key-2024';
 
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
+
+// Serve static files from uploads directory
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = path.join(__dirname, 'uploads');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueName = `${Date.now()}-${Math.round(Math.random() * 1E9)}${path.extname(file.originalname)}`;
+    cb(null, uniqueName);
+  }
+});
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed'), false);
+    }
+  }
+});
 
 // ── Auth Middleware ──
 function authMiddleware(req, res, next) {
@@ -53,7 +86,7 @@ app.post('/api/auth/signup', async (req, res) => {
     });
     
     await user.save();
-    const token = jwt.sign({ userId: id, email }, JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ userId: id, email }, JWT_SECRET, { expiresIn: '30d' });
     res.json({ token, user: { id, name, email } });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -68,7 +101,7 @@ app.post('/api/auth/signin', async (req, res) => {
     if (!user) return res.status(401).json({ error: 'Invalid email or password' });
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) return res.status(401).json({ error: 'Invalid email or password' });
-    const token = jwt.sign({ userId: user.id, email }, JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ userId: user.id, email }, JWT_SECRET, { expiresIn: '30d' });
     res.json({ token, user: { id: user.id, name: user.name, email } });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -81,6 +114,20 @@ app.get('/api/auth/me', authMiddleware, async (req, res) => {
     const user = await User.findOne({ email: req.userEmail });
     if (!user) return res.status(404).json({ error: 'User not found' });
     res.json({ id: user.id, name: user.name, email: user.email, profileCount: user.profiles.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── UPLOAD IMAGE ──
+app.post('/api/upload', authMiddleware, upload.single('image'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No image file provided' });
+    }
+    
+    const imageUrl = `/uploads/${req.file.filename}`;
+    res.json({ imageUrl });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
